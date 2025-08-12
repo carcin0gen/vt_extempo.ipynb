@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard E-commerce — HTML (Plotly)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <style>
+    body{padding:18px;background:#f7f7f9}
+    .card{margin-bottom:12px}
+    .chart{height:420px}
+    .small-note{font-size:0.85rem;color:#555}
+  </style>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row mb-3">
+    <div class="col-12">
+      <h3>Dashboard E-commerce (HTML, Plotly) — Conexión GitHub</h3>
+      <p class="small-note">Sustituye la URL de ejemplo por el <strong>raw URL</strong> de tu CSV en GitHub (ej. <code>https://raw.githubusercontent.com/usuario/repo/main/ecommerce_dataset_examen.csv</code>). Guarda este archivo en el repo y actívalo con GitHub Pages.</p>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="row">
+    <div class="col-lg-4">
+      <div class="card p-3">
+        <label class="form-label">CSV raw URL (GitHub)</label>
+        <input id="csv-url" class="form-control" value="https://raw.githubusercontent.com/carcin0gen/vt_extempo.ipynb/refs/heads/main/ecommerce_dataset_examen.csv">
+        <div class="d-grid gap-2 mt-2">
+          <button id="load-btn" class="btn btn-primary">Cargar datos</button>
+        </div>
+        <hr>
+        <div class="mb-2">
+          <label class="form-label">Filtros rápidos</label>
+          <select id="category-filter" class="form-select mb-2"><option value="__ALL__">Todas las categorías</option></select>
+          <select id="payment-filter" class="form-select mb-2"><option value="__ALL__">Todos los métodos de pago</option></select>
+          <select id="gender-filter" class="form-select mb-2"><option value="__ALL__">Todos los géneros</option></select>
+          <div class="input-group mb-2">
+            <span class="input-group-text">Edad</span>
+            <input id="age-min" type="number" class="form-control" placeholder="min" min="0">
+            <input id="age-max" type="number" class="form-control" placeholder="max" min="0">
+          </div>
+        </div>
+        <div class="small-note">Sugerencia: sube el CSV a GitHub y copia el <em>raw</em> URL aquí. Luego pulsa Cargar.</div>
+      </div>
+
+      <div class="card p-3">
+        <h6>Instrucciones rápidas</h6>
+        <ol>
+          <li>Sube <code>ecommerce_dataset_examen.csv</code> a un repo público de GitHub.</li>
+          <li>Abre el archivo en GitHub y pulsa "Raw"; copia la URL.</li>
+          <li>Pega la URL en el campo y pulsa <strong>Cargar datos</strong>.</li>
+          <li>Usa los filtros para explorar las gráficas.</li>
+          <li>Si quieres publicar: activa GitHub Pages en el repo y pon este archivo en la rama <code>gh-pages</code> o en <code>main</code> en la carpeta <code>/docs</code>.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <!-- Charts grid -->
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card"><div class="card-body"><h6>Edad — Histograma</h6><div id="chart-age" class="chart"></div></div></div>
+        </div>
+        <div class="col-md-6">
+          <div class="card"><div class="card-body"><h6>Compras por categoría y rango de edad</h6><div id="chart-bar" class="chart"></div></div></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-12">
+          <div class="card"><div class="card-body"><h6>Compras mensuales por categoría (serie)</h6><div id="chart-timeseries" class="chart"></div></div></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card"><div class="card-body"><h6>Días de entrega vs Satisfacción</h6><div id="chart-scatter" class="chart"></div></div></div>
+        </div>
+        <div class="col-md-6">
+          <div class="card"><div class="card-body"><h6>Heatmap correlaciones</h6><div id="chart-heatmap" class="chart"></div></div></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-12">
+          <div class="card"><div class="card-body"><h6>Boxplot: Satisfacción por método de pago</h6><div id="chart-box" class="chart"></div></div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Dependencias -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.25.1.min.js"></script>
+<script>
+// ----------------------
+// Helper functions
+// ----------------------
+function sanitizeColName(s){ return s ? s.toString().trim() : s }
+function uniq(arr){ return Array.from(new Set(arr.filter(d=>d!==undefined && d!==null))) }
+
+function detectCols(cols){
+  // heurística para encontrar nombres de columnas frecuentes
+  const map = { age:['age','customer_age','edad'], price:['price','product_price','precio'], quantity:['quantity','qty','order_quantity','cantidad'],
+                category:['category','product_category','categoria','product_category_name'], payment:['payment_method','payment','metodo_pago'],
+                gender:['gender','customer_gender','sexo','genero'], order_date:['purchase_date','order_date','fecha_compra','purchase_date'],
+                ship_date:['ship_date','shipping_date','fecha_envio'], delivery_days:['delivery_days','dias_entrega','days_to_deliver'],
+                satisfaction:['satisfaction','rating','calificacion','score'], returns:['return','devolucion','is_return'] };
+  const found = {};
+  cols.forEach(c=>{
+    const lc = c.toLowerCase();
+    for(const key in map){
+      for(const token of map[key]){ if(lc.indexOf(token) !== -1){ found[key]=c; break; } }
+    }
+  });
+  return found;
+}
+
+function toNumber(x){ const v = parseFloat((''+x).replace(/[^0-9.-]+/g,'')); return isNaN(v)?null:v }
+
+// ----------------------
+// Main loader & processor
+// ----------------------
+let rawData = [];
+let df = [];
+let colsMap = {};
+
+function parseAndPrepare(dataRows){
+  rawData = dataRows;
+  // normalize keys
+  const keys = Object.keys(rawData[0]);
+  colsMap = detectCols(keys);
+
+  // convert to typed
+  df = rawData.map(r=>{
+    const out = {};
+    for(const k of keys) out[k] = r[k];
+    // derived
+    // age
+    if(colsMap.age){ out.__age = toNumber(out[colsMap.age]) }
+    // price
+    if(colsMap.price){ out.__price = toNumber(out[colsMap.price]) }
+    // qty
+    if(colsMap.quantity){ out.__qty = toNumber(out[colsMap.quantity]) }
+    // shipping cost
+    if(colsMap.shipping_cost && out[colsMap.shipping_cost]!==undefined) out.__shipping = toNumber(out[colsMap.shipping_cost])
+    // delivery days (if exists as numeric)
+    if(colsMap.delivery_days){ out.__delivery_days = toNumber(out[colsMap.delivery_days]) }
+    // satisfaction
+    if(colsMap.satisfaction){ out.__satisfaction = toNumber(out[colsMap.satisfaction]) }
+    // parse order date
+    if(colsMap.order_date){ const d = new Date(out[colsMap.order_date]); out.__order_date = isNaN(d)?null:d; if(out.__order_date) out.__order_month = out.__order_date.getFullYear() + '-' + String(out.__order_date.getMonth()+1).padStart(2,'0'); }
+    return out;
+  });
+
+  // create age groups
+  df.forEach(d=>{
+    const a = d.__age; if(a==null){ d.__age_group = null; return }
+    if(a < 18) d.__age_group = '<18';
+    else if(a <= 30) d.__age_group = '18-30';
+    else if(a <= 45) d.__age_group = '31-45';
+    else if(a <= 65) d.__age_group = '46-65';
+    else d.__age_group = '65+';
+  });
+
+  populateFilters(keys);
+  updateAllCharts();
+}
+
+function populateFilters(keys){
+  // populate category/payment/gender selects based on raw column names detected
+  const catCol = colsMap.category || keys.find(k=>k.toLowerCase().includes('category'));
+  const payCol = colsMap.payment || keys.find(k=>k.toLowerCase().includes('payment'));
+  const genderCol = colsMap.gender || keys.find(k=>k.toLowerCase().includes('gender'));
+
+  const catEl = document.getElementById('category-filter');
+  const payEl = document.getElementById('payment-filter');
+  const genEl = document.getElementById('gender-filter');
+  [catEl,payEl,genEl].forEach(el=>{ while(el.options.length>1) el.remove(1); });
+
+  if(catCol){ const vals = uniq(df.map(d=>d[catCol]).filter(Boolean)); vals.sort(); vals.forEach(v=>catEl.add(new Option(v,v))); }
+  if(payCol){ const vals = uniq(df.map(d=>d[payCol]).filter(Boolean)); vals.sort(); vals.forEach(v=>payEl.add(new Option(v,v))); }
+  if(genderCol){ const vals = uniq(df.map(d=>d[genderCol]).filter(Boolean)); vals.sort(); vals.forEach(v=>genEl.add(new Option(v,v))); }
+}
+
+function getFilterMask(){
+  const catVal = document.getElementById('category-filter').value;
+  const payVal = document.getElementById('payment-filter').value;
+  const genVal = document.getElementById('gender-filter').value;
+  const ageMin = parseFloat(document.getElementById('age-min').value);
+  const ageMax = parseFloat(document.getElementById('age-max').value);
+  return d=>{
+    if(catVal !== '__ALL__' && colsMap.category && d[colsMap.category] !== catVal) return false;
+    if(payVal !== '__ALL__' && colsMap.payment && d[colsMap.payment] !== payVal) return false;
+    if(genVal !== '__ALL__' && colsMap.gender && d[colsMap.gender] !== genVal) return false;
+    if(!isNaN(ageMin) && (d.__age==null || d.__age < ageMin)) return false;
+    if(!isNaN(ageMax) && (d.__age==null || d.__age > ageMax)) return false;
+    return true;
+  }
+}
+
+// ----------------------
+// Plot functions
+// ----------------------
+function updateAllCharts(){ updateAgeHist(); updateBar(); updateTimeSeries(); updateScatter(); updateHeatmap(); updateBox(); }
+
+function updateAgeHist(){
+  const mask = getFilterMask();
+  const arr = df.filter(mask).map(d=>d.__age).filter(v=>v!=null);
+  const data = [{ x: arr, type:'histogram', nbinsx:30 }];
+  const layout = { title:'Distribución de edad de clientes', bargap:0.05, xaxis:{title:'Edad'}, yaxis:{title:'Conteo'} };
+  Plotly.newPlot('chart-age', data, layout, {responsive:true});
+}
+
+function updateBar(){
+  const catCol = colsMap.category || Object.keys(df[0]||{}).find(k=>k.toLowerCase().includes('category'));
+  if(!catCol) { document.getElementById('chart-bar').innerHTML = '<div class="small-note">No se detectó columna de categoría.</div>'; return }
+  const mask = getFilterMask();
+  const grouped = {};
+  df.filter(mask).forEach(d=>{
+    const cat = d[catCol] || 'Unknown'; const ageg = d.__age_group || 'Unknown';
+    grouped[cat] = grouped[cat] || {}; grouped[cat][ageg] = (grouped[cat][ageg]||0)+1;
+  });
+  const cats = Object.keys(grouped).sort(); const ageGroups = ['<18','18-30','31-45','46-65','65+','Unknown'];
+  const traces = ageGroups.map(ag => ({ x:cats, y:cats.map(c=> grouped[c] ? (grouped[c][ag]||0):0), name:ag, type:'bar' }));
+  const layout = {barmode:'stack', title:'Compras por categoría segmentado por rango de edad', xaxis:{title:'Categoría'}, yaxis:{title:'Número de compras'}};
+  Plotly.newPlot('chart-bar', traces, layout, {responsive:true});
+}
+
+function updateTimeSeries(){
+  const catCol = colsMap.category || Object.keys(df[0]||{}).find(k=>k.toLowerCase().includes('category'));
+  if(!catCol || !colsMap.order_date) { document.getElementById('chart-timeseries').innerHTML = '<div class="small-note">Faltan columna de fecha o categoría para serie temporal.</div>'; return }
+  const mask = getFilterMask();
+  const grouped = {};
+  df.filter(d=>mask(d) && d.__order_month).forEach(d=>{ const cat = d[catCol]||'Unknown'; grouped[d.__order_month] = grouped[d.__order_month]||{}; grouped[d.__order_month][cat] = (grouped[d.__order_month][cat]||0)+1; });
+  const months = Object.keys(grouped).sort();
+  const cats = uniq([].concat(...months.map(m=>Object.keys(grouped[m])))).sort();
+  const traces = cats.map(cat=>({ x: months, y: months.map(m=> grouped[m][cat]||0), name:cat, mode:'lines+markers' }));
+  const layout = { title:'Compras mensuales por categoría', xaxis:{title:'Mes'}, yaxis:{title:'Nº compras'} };
+  Plotly.newPlot('chart-timeseries', traces, layout, {responsive:true});
+}
+
+function updateScatter(){
+  if(!colsMap.delivery_days || !colsMap.satisfaction) { document.getElementById('chart-scatter').innerHTML = '<div class="small-note">Faltan columnas de días de entrega o satisfacción para el scatter.</div>'; return }
+  const mask = getFilterMask();
+  const xs = []; const ys=[]; const text=[];
+  df.filter(mask).forEach(d=>{ const x = d.__delivery_days; const y = d.__satisfaction; if(x!=null && y!=null){ xs.push(x); ys.push(y); text.push((colsMap.category?d[colsMap.category]+' - ':'') + (colsMap.payment?d[colsMap.payment]:'') ); } });
+  const trace = { x:xs, y:ys, mode:'markers', type:'scatter', text:text, hovertemplate:'Días: %{x}<br>Satisfacción: %{y}<extra></extra>' };
+  const layout = {title:'Días de entrega vs Satisfacción', xaxis:{title:'Días de entrega'}, yaxis:{title:'Satisfacción'}};
+  Plotly.newPlot('chart-scatter',[trace],layout,{responsive:true});
+}
+
+function updateHeatmap(){
+  // selecciona variables numéricas derivadas
+  const numCols = ['__age','__price','__qty','__shipping','__delivery_days','__satisfaction'];
+  const present = numCols.filter(c=> df.some(d=>d[c]!=null));
+  if(present.length < 2) { document.getElementById('chart-heatmap').innerHTML = '<div class="small-note">No hay suficientes variables numéricas para correlación.</div>'; return }
+  // construir matriz
+  const mat = present.map(c=> df.map(d=>d[c]));
+  // compute corr
+  function corr(a,b){ const n=a.length; let ax=[],bx=[]; for(let i=0;i<n;i++){ if(a[i]==null||b[i]==null) continue; ax.push(a[i]); bx.push(b[i]); } const m = ax.length; if(m<2) return null; const mean=(arr)=>arr.reduce((s,v)=>s+v,0)/arr.length; const ma=mean(ax), mb=mean(bx); let num=0,da=0,db=0; for(let i=0;i<m;i++){ num += (ax[i]-ma)*(bx[i]-mb); da += Math.pow(ax[i]-ma,2); db += Math.pow(bx[i]-mb,2); } const den = Math.sqrt(da*db); return den==0?0:(num/den); }
+  const z = []; for(let i=0;i<present.length;i++){ const row=[]; for(let j=0;j<present.length;j++){ row.push(+ (corr(mat[i], mat[j])||0).toFixed(3)); } z.push(row); }
+  const data = [{ z:z, x:present, y:present, type:'heatmap', colorscale:'Viridis' }];
+  const layout = { title:'Heatmap de correlaciones (numéricas)' };
+  Plotly.newPlot('chart-heatmap', data, layout, {responsive:true});
+}
+
+function updateBox(){
+  const payCol = colsMap.payment || Object.keys(df[0]||{}).find(k=>k.toLowerCase().includes('payment'));
+  if(!payCol || !colsMap.satisfaction) { document.getElementById('chart-box').innerHTML = '<div class="small-note">Faltan columnas de método de pago o satisfacción para boxplot.</div>'; return }
+  const mask = getFilterMask();
+  const groups = {};
+  df.filter(mask).forEach(d=>{ const p = d[payCol]||'Unknown'; groups[p] = groups[p] || []; if(d.__satisfaction!=null) groups[p].push(d.__satisfaction); });
+  const traces = Object.keys(groups).map(k=>({ y:groups[k], name:k, type:'box', boxpoints:'outliers' }));
+  const layout = { title:'Satisfacción por método de pago' };
+  Plotly.newPlot('chart-box', traces, layout, {responsive:true});
+}
+
+// ----------------------
+// Events
+// ----------------------
+document.getElementById('load-btn').addEventListener('click', ()=>{
+  const url = document.getElementById('csv-url').value.trim();
+  if(!url) { alert('Pega el raw URL de GitHub del CSV'); return }
+  Papa.parse(url, { header:true, download:true, skipEmptyLines:true, complete:function(res){ if(res.errors && res.errors.length){ console.warn('Parse errors', res.errors); }
+    if(!res.data || res.data.length===0){ alert('No se pudieron leer filas desde la URL. Revisar CORS/raw URL.'); return }
+    parseAndPrepare(res.data); }, error:function(err){ alert('Error al descargar/leer CSV: '+err); } });
+});
+
+['category-filter','payment-filter','gender-filter','age-min','age-max'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>updateAllCharts());
+});
+
+// Optionally: allow dragging a local file by replacing the CSV loader with FileReader. Not included by default.
+
+</script>
+</body>
+</html>
